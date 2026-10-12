@@ -294,7 +294,10 @@ export async function generateDriverVoiceCopilotResponse(context: {
   atRiskCount: number;
   coldChainCount: number;
   speed?: number;
+  trafficProbabilityPct?: number;
+  trafficRiskTier?: string;
 }): Promise<{
+
   speechText: string;
   displayText: string;
   category: "NEXT_STOP" | "COLD_CHAIN" | "ROUTE_STATUS" | "AT_RISK" | "TELEMETRY" | "GENERAL";
@@ -330,14 +333,16 @@ export async function generateDriverVoiceCopilotResponse(context: {
       return { speechText: text, displayText: text, category: "COLD_CHAIN" as const };
     }
 
-    if (queryLower.includes("risk") || queryLower.includes("delay") || queryLower.includes("late") || queryLower.includes("traffic") || queryLower.includes("window")) {
-      if (context.atRiskCount > 0) {
-        const text = `Caution: You have ${context.atRiskCount} at-risk delivery approaching SLA deadline due to corridor traffic. Dispatcher swarm optimization is monitoring for baton pass relay opportunities.`;
-        return { speechText: text, displayText: text, category: "AT_RISK" as const };
-      }
-      const text = `All deliveries on vehicle ${context.truckId} are tracking within nominal SLA windows. No delays detected.`;
+    if (queryLower.includes("risk") || queryLower.includes("delay") || queryLower.includes("late") || queryLower.includes("traffic") || queryLower.includes("window") || queryLower.includes("predict") || queryLower.includes("probability") || queryLower.includes("chance")) {
+      const prob = context.trafficProbabilityPct ?? (context.atRiskCount > 0 ? 82 : 18);
+      const tier = context.trafficRiskTier || (prob >= 80 ? "SEVERE CHOKE" : prob >= 60 ? "HIGH RISK" : prob >= 35 ? "MODERATE RISK" : "LOW RISK");
+      const advice = prob >= 60
+        ? "Deceleration wave detected ahead. Proactive avoidance advised: divert to parallel arterial before Diversion Gate."
+        : "Green corridor momentum. Maintain nominal route.";
+      const text = `Predictive traffic occurrence probability along your corridor is ${prob}% (${tier}). ${advice} ${context.atRiskCount > 0 ? `Alert: ${context.atRiskCount} delivery approaching SLA deadline.` : "All deliveries currently on schedule."}`;
       return { speechText: text, displayText: text, category: "AT_RISK" as const };
     }
+
 
     if (queryLower.includes("how many") || queryLower.includes("remaining") || queryLower.includes("stops") || queryLower.includes("count") || queryLower.includes("status")) {
       const text = `You have ${context.pendingCount} pending deliveries remaining on your manifest. ${context.coldChainCount} are cold-chain, and ${context.atRiskCount} require priority attention.`;

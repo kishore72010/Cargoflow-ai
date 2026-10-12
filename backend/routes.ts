@@ -20,6 +20,8 @@ import {
   generateDriverVoiceCopilotResponse,
 } from "./gemini.js";
 import { generateColdChainCertificate, verifyAuditChain } from "./coldchain_audit.js";
+import { predictTrafficOccurrence } from "./predictive_traffic.js";
+
 
 import {
   broadcastTruckLocation,
@@ -1140,6 +1142,11 @@ router.post("/ai/copilot", authenticateUser, async (req: Request, res: Response)
     const atRiskCount = truckDeliveries.filter((d) => d.is_delayed || (d.delay_minutes && d.delay_minutes > 0)).length;
     const coldChainCount = truckDeliveries.filter((d) => d.is_perishable).length;
 
+    const trafficPrediction = predictTrafficOccurrence({
+      truck,
+      trafficDelayMin: truck?.current_traffic_delay_min || 0,
+    });
+
     const response = await generateDriverVoiceCopilotResponse({
       driverName,
       truckId: effectiveTruckId,
@@ -1149,8 +1156,9 @@ router.post("/ai/copilot", authenticateUser, async (req: Request, res: Response)
       atRiskCount,
       coldChainCount,
       speed: truck?.speed_kmh || 0,
+      trafficProbabilityPct: trafficPrediction.congestionProbabilityPct,
+      trafficRiskTier: trafficPrediction.riskTier,
     });
-
 
     res.json({
       success: true,
@@ -1158,15 +1166,19 @@ router.post("/ai/copilot", authenticateUser, async (req: Request, res: Response)
       speechText: response.speechText,
       displayText: response.displayText,
       category: response.category,
+      trafficPrediction,
       context: {
         truckId: effectiveTruckId,
         driverName,
         pendingCount: pendingDeliveries.length,
         nextDeliveryId: nextDelivery?.delivery_id || null,
         nextRecipient: nextDelivery?.recipient || null,
+        congestionProbabilityPct: trafficPrediction.congestionProbabilityPct,
+        riskTier: trafficPrediction.riskTier,
       },
       timestamp: new Date().toISOString(),
     });
+
   } catch (error: any) {
     console.error("[CargoFlow AI Copilot] Error:", error);
     res.status(500).json({ error: error.message });
@@ -1238,7 +1250,46 @@ router.post("/deliveries/:id/verify-audit-chain", authenticateUser, async (req: 
 });
 
 /**
+ * GET /api/traffic/prediction
+ * Predictive AI Congestion Avoidance Endpoint (Point 3).
+ * Calculates the exact percentage possibility of traffic occurrence (congestion probability)
+ * and shockwave delay for assigned trucks or city corridors.
+ */
+router.get("/traffic/prediction", async (req: Request, res: Response) => {
+  try {
+    const { truck_id, corridor } = req.query;
+    const db = await getDb();
+
+    let targetTruck: Truck | null = null;
+    if (truck_id && typeof truck_id === "string") {
+      targetTruck = await db.collection<Truck>("trucks").findOne({ truck_id });
+    }
+
+    if (!targetTruck) {
+      const allTrucks = await db.collection<Truck>("trucks").find().toArray();
+      targetTruck = allTrucks.sort((a, b) => (b.current_traffic_delay_min || 0) - (a.current_traffic_delay_min || 0))[0] || null;
+    }
+
+    const prediction = predictTrafficOccurrence({
+      truck: targetTruck,
+      corridorName: typeof corridor === "string" ? corridor : undefined,
+      trafficDelayMin: targetTruck?.current_traffic_delay_min || 0,
+    });
+
+    res.json({
+      success: true,
+      prediction,
+      truck_id: targetTruck?.truck_id || "FLEET",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/cold-chain/status
+
 
  * Fleet-wide perishable inventory status, decay curves, and amber/red risk metrics.
  */

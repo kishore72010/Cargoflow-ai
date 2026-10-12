@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Truck, Delivery, Driver, AuthUser } from "../types";
+import { Truck, Delivery, Driver, AuthUser, TrafficPrediction } from "../types";
 import {
   Navigation,
   Radio,
@@ -23,6 +23,8 @@ import {
   Check,
   X,
   LogOut,
+  TrendingUp,
+  ShieldAlert,
 } from "lucide-react";
 import { getSocket } from "../services/socket";
 import { DriverVoiceCopilot } from "./DriverVoiceCopilot";
@@ -83,6 +85,8 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
   const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [isMarkingArrived, setIsMarkingArrived] = useState<string | null>(null);
+  const [trafficPrediction, setTrafficPrediction] = useState<TrafficPrediction | null>(null);
+
 
   const watchIdRef = useRef<number | null>(null);
   const tickerRef = useRef<any>(null);
@@ -109,6 +113,20 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
   };
 
   const assignedTruck = trucks.find((t) => t.truck_id === activeDriver.assigned_truck_id) || trucks[0];
+
+  // Predictive Traffic Risk Effect (Point 3)
+  useEffect(() => {
+    if (!assignedTruck?.truck_id) return;
+    fetch(`/api/traffic/prediction?truck_id=${assignedTruck.truck_id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.prediction) {
+          setTrafficPrediction(data.prediction);
+        }
+      })
+      .catch(() => {});
+  }, [assignedTruck?.truck_id, assignedTruck?.current_traffic_delay_min, deliveries]);
+
 
   // Deliveries for this driver's truck
   const driverDeliveries = deliveries
@@ -480,7 +498,86 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
           </div>
         </div>
 
+        {/* Requirement: Predictive AI Traffic Occurrence Possibility (Point 3) */}
+        <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex flex-col gap-2 shadow-inner">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <ShieldAlert
+                className={`w-4 h-4 ${
+                  (trafficPrediction?.congestionProbabilityPct || 18) >= 80
+                    ? "text-rose-400 animate-pulse"
+                    : (trafficPrediction?.congestionProbabilityPct || 18) >= 60
+                    ? "text-orange-400"
+                    : (trafficPrediction?.congestionProbabilityPct || 18) >= 35
+                    ? "text-amber-400"
+                    : "text-emerald-400"
+                }`}
+              />
+              <span className="text-xs font-black uppercase tracking-wider text-slate-200">
+                Predictive Traffic Risk
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">• Lookahead: 20m</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-slate-400">Occurrence Possibility:</span>
+              <span
+                className={`text-base font-black font-mono ${
+                  (trafficPrediction?.congestionProbabilityPct || 18) >= 80
+                    ? "text-rose-400 animate-pulse"
+                    : (trafficPrediction?.congestionProbabilityPct || 18) >= 60
+                    ? "text-orange-400"
+                    : (trafficPrediction?.congestionProbabilityPct || 18) >= 35
+                    ? "text-amber-400"
+                    : "text-emerald-400"
+                }`}
+              >
+                {trafficPrediction?.congestionProbabilityPct ?? 18}%
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ${
+                  (trafficPrediction?.congestionProbabilityPct || 18) >= 80
+                    ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                    : (trafficPrediction?.congestionProbabilityPct || 18) >= 60
+                    ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
+                    : (trafficPrediction?.congestionProbabilityPct || 18) >= 35
+                    ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                    : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                }`}
+              >
+                {trafficPrediction?.riskTier ?? "LOW RISK"}
+              </span>
+            </div>
+          </div>
+
+          {/* Probability Progress Bar */}
+          <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                (trafficPrediction?.congestionProbabilityPct || 18) >= 80
+                  ? "bg-rose-500"
+                  : (trafficPrediction?.congestionProbabilityPct || 18) >= 60
+                  ? "bg-orange-500"
+                  : (trafficPrediction?.congestionProbabilityPct || 18) >= 35
+                  ? "bg-amber-500"
+                  : "bg-emerald-500"
+              }`}
+              style={{ width: `${trafficPrediction?.congestionProbabilityPct ?? 18}%` }}
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-slate-400 pt-1">
+            <span className="truncate">{trafficPrediction?.advisory || "Corridor flow nominal. No major bottlenecks predicted."}</span>
+            {trafficPrediction && trafficPrediction.predictedShockwaveDelayMin > 5 && (
+              <span className="font-mono text-rose-300 text-[10px] shrink-0 font-bold">
+                +{trafficPrediction.predictedShockwaveDelayMin}m Shockwave Delay
+              </span>
+            )}
+          </div>
+        </div>
+
         {/* Big Touch-Friendly Buttons */}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
           {gpsStatus !== "GPS_ACTIVE" ? (
             <button

@@ -398,4 +398,17 @@ export interface ColdChainCertificate {
   telemetryBlocks: ColdChainTelemetryBlock[];
 }
 
+export interface TrafficPrediction {
+  corridorName: string;
+  congestionProbabilityPct: number;
+  riskTier: "LOW" | "MODERATE" | "HIGH" | "SEVERE_CHOKE";
+  predictedShockwaveDelayMin: number;
+  diversionGate: string;
+  leadTimeMinutes: number;
+  confidenceScore: number;
+  velocityDecayPct: number;
+  advisory: string;
+}
+
+
 

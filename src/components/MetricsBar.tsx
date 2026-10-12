@@ -8,6 +8,7 @@ import {
   Database,
   Cpu,
   Package,
+  ShieldAlert,
 } from "lucide-react";
 
 interface MetricsBarProps {
@@ -33,8 +34,12 @@ export const MetricsBar: React.FC<MetricsBarProps> = ({
   const onTimePercentage =
     totalDeliveries > 0 ? Math.round((onTimeCount / totalDeliveries) * 100) : 100;
 
+  const maxDelayMin = Math.max(0, ...trucks.map((t) => t.current_traffic_delay_min || 0));
+  const congestionProbability = Math.min(96, Math.max(16, Math.round(18 + maxDelayMin * 1.85)));
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+
       {/* SLA On-Time Rate */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between shadow-lg">
         <div>
@@ -108,6 +113,43 @@ export const MetricsBar: React.FC<MetricsBarProps> = ({
           <AlertTriangle className="w-5 h-5" />
         </div>
       </div>
+
+      {/* Predictive Traffic Occurrence Risk (Point 3) */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between shadow-lg">
+        <div>
+          <span className="text-[11px] font-medium text-slate-400 block">Corridor Traffic Risk</span>
+          <div className="flex items-baseline gap-2 mt-0.5">
+            <span
+              className={`text-xl font-extrabold ${
+                congestionProbability >= 80
+                  ? "text-rose-400 animate-pulse"
+                  : congestionProbability >= 60
+                  ? "text-orange-400"
+                  : congestionProbability >= 35
+                  ? "text-amber-400"
+                  : "text-emerald-400"
+              }`}
+            >
+              {congestionProbability}%
+            </span>
+            <span className="text-[10px] text-slate-400 font-semibold uppercase">
+              {congestionProbability >= 80 ? "Severe Choke" : congestionProbability >= 60 ? "High Risk" : congestionProbability >= 35 ? "Moderate" : "Nominal"}
+            </span>
+          </div>
+        </div>
+        <div
+          className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+            congestionProbability >= 60
+              ? "bg-rose-500/10 text-rose-400 animate-pulse"
+              : congestionProbability >= 35
+              ? "bg-amber-500/10 text-amber-400"
+              : "bg-emerald-500/10 text-emerald-400"
+          }`}
+        >
+          <ShieldAlert className="w-5 h-5" />
+        </div>
+      </div>
+
 
       {/* Active Fleet Trucks */}
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between shadow-lg">

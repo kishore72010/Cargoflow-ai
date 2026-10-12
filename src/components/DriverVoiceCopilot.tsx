@@ -203,8 +203,10 @@ export const DriverVoiceCopilot: React.FC<DriverVoiceCopilotProps> = ({
     { label: "Cold-Chain Status", query: "Check my cold-chain cargo and temperatures" },
     { label: "Pending Stops Count", query: "How many deliveries do I have left today?" },
     { label: "Any Route Delays?", query: "Are there any at-risk or delayed packages?" },
+    { label: "Traffic Occurrence %", query: "What is the probability of traffic occurrence ahead?" },
     { label: "Vehicle Telemetry", query: "Report current vehicle speed and telemetry" },
   ];
+
 
   return (
     <div className="bg-slate-900 border-2 border-indigo-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl relative overflow-hidden flex flex-col gap-4">
