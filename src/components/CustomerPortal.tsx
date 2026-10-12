@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Delivery, Truck, CustomerNotification, Product, Order, Customer, AuthUser } from "../types";
+import { Delivery, Truck, CustomerNotification, Product, Order, Customer, AuthUser, ColdChainCertificate } from "../types";
 import {
   Search,
   Package,
@@ -36,10 +36,13 @@ import {
   UserCheck,
   Check,
   Compass,
+  Award,
 } from "lucide-react";
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
 import L from "leaflet";
 import { getSocket } from "../services/socket";
+import { ColdChainCertificateModal } from "./ColdChainCertificateModal";
+
 
 interface CustomerPortalProps {
   deliveries: Delivery[];
@@ -161,6 +164,30 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
 
   // Active delivery tracking
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+
+  // Cold-Chain Cryptographic Certificate State
+  const [selectedCustomerCert, setSelectedCustomerCert] = useState<ColdChainCertificate | null>(null);
+  const [isCustomerCertOpen, setIsCustomerCertOpen] = useState(false);
+  const [isLoadingCertId, setIsLoadingCertId] = useState<string | null>(null);
+
+  const handleOpenCustomerCert = async (deliveryId: string) => {
+    setIsLoadingCertId(deliveryId);
+    try {
+      const res = await fetch(`/api/deliveries/${deliveryId}/cold-chain-certificate`);
+      const data = await res.json();
+      if (data.success && data.certificate) {
+        setSelectedCustomerCert(data.certificate);
+        setIsCustomerCertOpen(true);
+      } else {
+        showToast("Could not load cold-chain certificate for this delivery.");
+      }
+    } catch (err: any) {
+      showToast("Error retrieving certificate: " + err.message);
+    } finally {
+      setIsLoadingCertId(null);
+    }
+  };
+
 
   // Load products catalog from backend
   const fetchProducts = async () => {
@@ -1321,12 +1348,31 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                       </span>
                     </div>
                   )}
+
+                  {activeDelivery && (activeDelivery.is_perishable || activeOrder?.items.some((i) => i.is_cold_chain)) && (
+                    <div className="pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCustomerCert(activeDelivery.delivery_id)}
+                        disabled={isLoadingCertId === activeDelivery.delivery_id}
+                        className="w-full py-2.5 px-3 rounded-xl bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/40 text-cyan-300 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-lg shadow-cyan-950/50"
+                      >
+                        <Award className="w-4 h-4 text-cyan-400" />
+                        <span>
+                          {isLoadingCertId === activeDelivery.delivery_id
+                            ? "Loading..."
+                            : "View Cold-Chain Integrity Certificate"}
+                        </span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
         </div>
       )}
+
 
       {/* ========================================================================= */}
       {/* 5. CUSTOMER ORDER HISTORY VIEW                                            */}
@@ -1393,17 +1439,31 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
                       </td>
                       <td className="py-3 px-3 font-mono text-slate-300">{ord.assigned_truck_id}</td>
                       <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => {
-                            setActiveOrder(ord);
-                            if (ord.delivery_id) onSelectDelivery(ord.delivery_id);
-                            setActiveTab("tracking");
-                          }}
-                          className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold rounded-lg transition cursor-pointer text-xs"
-                        >
-                          Track Live
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {ord.items.some((i) => i.is_cold_chain) && ord.delivery_id && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCustomerCert(ord.delivery_id!)}
+                              className="px-2.5 py-1 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/30 text-cyan-300 font-bold rounded-lg transition cursor-pointer text-xs flex items-center gap-1"
+                              title="View Cryptographic Cold-Chain Certificate"
+                            >
+                              <Award className="w-3 h-3 text-cyan-400" />
+                              <span>Audit Cert</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setActiveOrder(ord);
+                              if (ord.delivery_id) onSelectDelivery(ord.delivery_id);
+                              setActiveTab("tracking");
+                            }}
+                            className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold rounded-lg transition cursor-pointer text-xs"
+                          >
+                            Track Live
+                          </button>
+                        </div>
                       </td>
+
                     </tr>
                   ))}
                 </tbody>
@@ -1545,6 +1605,15 @@ export const CustomerPortal: React.FC<CustomerPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Cryptographic Cold-Chain Audit Certificate Modal */}
+      <ColdChainCertificateModal
+        certificate={selectedCustomerCert}
+        isOpen={isCustomerCertOpen}
+        onClose={() => setIsCustomerCertOpen(false)}
+        showToast={showToast}
+      />
     </div>
   );
 };
+

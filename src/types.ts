@@ -361,3 +361,41 @@ export interface AuthUser {
   adminId?: string;
 }
 
+export interface ColdChainTelemetryBlock {
+  blockIndex: number;
+  timestamp: string;
+  sensorId: string;
+  ambientTempC: number;
+  cargoTempC: number;
+  maxSafeTempC: number;
+  location: { lat: number; lng: number; label?: string };
+  batteryPct: number;
+  status: "COMPLIANT" | "WARNING" | "EXCURSION";
+  prevHash: string;
+  hash: string;
+}
+
+export interface ColdChainCertificate {
+  certificateId: string;
+  deliveryId: string;
+  orderId?: string;
+  productName: string;
+  category: PerishableCategory;
+  recipient: string;
+  destinationAddress: string;
+  carrierTruckId: string;
+  sensorId: string;
+  issuedAt: string;
+  standardCompliance: string;
+  integrityStatus: "CERTIFIED_SAFE" | "EXCURSION_DETECTED";
+  minTempRecorded: number;
+  maxTempRecorded: number;
+  avgTempRecorded: number;
+  totalCheckpoints: number;
+  rootHash: string;
+  digitalSignature: string;
+  blockchainVerified: boolean;
+  telemetryBlocks: ColdChainTelemetryBlock[];
+}
+
+

@@ -25,6 +25,8 @@ import {
   LogOut,
 } from "lucide-react";
 import { getSocket } from "../services/socket";
+import { DriverVoiceCopilot } from "./DriverVoiceCopilot";
+
 
 interface DriverPortalProps {
   trucks: Truck[];
@@ -528,7 +530,19 @@ export const DriverPortal: React.FC<DriverPortalProps> = ({
         </div>
       )}
 
+
+      {/* Requirement: Hands-Free AI Voice Copilot for Commercial Drivers */}
+
+      <DriverVoiceCopilot
+        activeDriver={activeDriver}
+        assignedTruck={assignedTruck}
+        driverDeliveries={driverDeliveries}
+        currentStop={currentStop}
+        showToast={showToast}
+      />
+
       {/* Next Up Delivery Card */}
+
       {currentStop && (
         <div className="bg-slate-900 border-2 border-blue-500/50 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">

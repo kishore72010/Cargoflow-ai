@@ -17,7 +17,10 @@ import {
   generateFleetTacticalBriefing,
   analyzeBatonPassRelay,
   generateSmartCustomerNotification,
+  generateDriverVoiceCopilotResponse,
 } from "./gemini.js";
+import { generateColdChainCertificate, verifyAuditChain } from "./coldchain_audit.js";
+
 import {
   broadcastTruckLocation,
   broadcastFleetUpdate,
@@ -1092,7 +1095,151 @@ router.post("/ai/compose-notification", async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/ai/copilot
+ * Hands-free AI audio copilot for commercial delivery drivers using Gemini 3.8 Flash.
+ */
+router.post("/ai/copilot", authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const { query, driver_id, truck_id } = req.body;
+    if (!query || typeof query !== "string") {
+      return res.status(400).json({ error: "Voice or text query is required." });
+    }
+
+    const db = await getDb();
+
+    // Determine target driver and vehicle
+    let targetDriverId = driver_id || (req.user?.role === "DRIVER" ? req.user.driverId : null);
+    let targetTruckId = truck_id || (req.user?.role === "DRIVER" ? req.user.assignedVehicleId : null);
+
+    let driver = null;
+    if (targetDriverId) {
+      driver = await db.collection("drivers").findOne({ driver_id: targetDriverId });
+    }
+    if (!driver && req.user?.name) {
+      driver = await db.collection("drivers").findOne({ name: req.user.name });
+    }
+    if (driver && !targetTruckId) {
+      targetTruckId = driver.assigned_truck_id;
+    }
+
+    const effectiveTruckId = targetTruckId || "TRK-01";
+    const driverName = driver?.name || req.user?.name || "Driver";
+
+    // Fetch truck info & deliveries
+    const truck = await db.collection<Truck>("trucks").findOne({ truck_id: effectiveTruckId });
+    const truckDeliveries = await db
+      .collection<Delivery>("deliveries")
+      .find({ assigned_truck_id: effectiveTruckId })
+      .toArray();
+
+    const pendingDeliveries = truckDeliveries
+      .filter((d) => d.status === "pending" || d.status === "in_transit")
+      .sort((a, b) => (a.optimized_sequence || a.original_sequence) - (b.optimized_sequence || b.original_sequence));
+
+    const nextDelivery = pendingDeliveries[0] || null;
+    const atRiskCount = truckDeliveries.filter((d) => d.is_delayed || (d.delay_minutes && d.delay_minutes > 0)).length;
+    const coldChainCount = truckDeliveries.filter((d) => d.is_perishable).length;
+
+    const response = await generateDriverVoiceCopilotResponse({
+      driverName,
+      truckId: effectiveTruckId,
+      query,
+      nextDelivery,
+      pendingCount: pendingDeliveries.length,
+      atRiskCount,
+      coldChainCount,
+      speed: truck?.speed_kmh || 0,
+    });
+
+
+    res.json({
+      success: true,
+      query,
+      speechText: response.speechText,
+      displayText: response.displayText,
+      category: response.category,
+      context: {
+        truckId: effectiveTruckId,
+        driverName,
+        pendingCount: pendingDeliveries.length,
+        nextDeliveryId: nextDelivery?.delivery_id || null,
+        nextRecipient: nextDelivery?.recipient || null,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error("[CargoFlow AI Copilot] Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/deliveries/:id/cold-chain-certificate
+ * Retrieves or generates an immutable, cryptographic IoT audit trail and certificate
+ * for cold-chain parcels (FDA 21 CFR Part 11 / WHO GDP certified).
+ */
+router.get("/deliveries/:id/cold-chain-certificate", authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const deliveryId = req.params.id;
+    const db = await getDb();
+
+    const delivery = await db.collection<Delivery>("deliveries").findOne({ delivery_id: deliveryId });
+    if (!delivery) {
+      return res.status(404).json({ error: "Delivery not found" });
+    }
+
+    // Role verification: Customers can only access their own delivery certificates
+    if (req.user?.role === "CUSTOMER") {
+      const activeCustId = req.user.customerId || req.user.id;
+      if (delivery.order_id) {
+        const order = await db.collection("orders").findOne({ order_id: delivery.order_id });
+        if (order && order.customer_id !== activeCustId) {
+          return res.status(403).json({ error: "Access denied to other customer certificates." });
+        }
+      }
+    }
+
+    const certificate = generateColdChainCertificate(delivery);
+    const verification = verifyAuditChain(certificate);
+
+    res.json({
+      success: true,
+      certificate,
+      verified: verification.valid,
+      verificationMessage: verification.message,
+    });
+  } catch (error: any) {
+    console.error("[CargoFlow Cold Chain Cert] Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/deliveries/:id/verify-audit-chain
+ * Validates cryptographic hash consistency for an IoT sensor audit trail block.
+ */
+router.post("/deliveries/:id/verify-audit-chain", authenticateUser, async (req: Request, res: Response) => {
+  try {
+    const { certificate } = req.body;
+    if (!certificate) {
+      return res.status(400).json({ error: "Certificate payload is required" });
+    }
+
+    const result = verifyAuditChain(certificate);
+    res.json({
+      success: true,
+      valid: result.valid,
+      message: result.message,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/cold-chain/status
+
  * Fleet-wide perishable inventory status, decay curves, and amber/red risk metrics.
  */
 router.get("/cold-chain/status", async (req: Request, res: Response) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Delivery } from "../types";
+import { Delivery, ColdChainCertificate } from "../types";
 import {
   Snowflake,
   Thermometer,
@@ -12,7 +12,11 @@ import {
   Package,
   Zap,
   Info,
+  Award,
+  FileCheck,
 } from "lucide-react";
+import { ColdChainCertificateModal } from "./ColdChainCertificateModal";
+
 
 interface ColdChainDecayPanelProps {
   deliveries: Delivery[];
@@ -31,6 +35,26 @@ export const ColdChainDecayPanel: React.FC<ColdChainDecayPanelProps> = ({
   const [idleStallMin, setIdleStallMin] = useState<number>(28.0);
   const [autoReshuffle, setAutoReshuffle] = useState<boolean>(true);
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
+  const [selectedCert, setSelectedCert] = useState<ColdChainCertificate | null>(null);
+  const [isCertModalOpen, setIsCertModalOpen] = useState<boolean>(false);
+  const [isLoadingCert, setIsLoadingCert] = useState<string | null>(null);
+
+  const handleOpenCertificate = async (deliveryId: string) => {
+    setIsLoadingCert(deliveryId);
+    try {
+      const res = await fetch(`/api/deliveries/${deliveryId}/cold-chain-certificate`);
+      const data = await res.json();
+      if (data.success && data.certificate) {
+        setSelectedCert(data.certificate);
+        setIsCertModalOpen(true);
+      }
+    } catch (err) {
+      console.error("Error loading cold-chain certificate:", err);
+    } finally {
+      setIsLoadingCert(null);
+    }
+  };
+
 
   const perishableItems = deliveries.filter((d) => d.is_perishable);
   const redCriticalItems = perishableItems.filter((d) => d.spoilage_risk === "RED_CRITICAL");
@@ -358,11 +382,32 @@ export const ColdChainDecayPanel: React.FC<ColdChainDecayPanelProps> = ({
                     </strong>
                   </div>
                 </div>
+
+                {/* Audit Certificate Button */}
+                <div className="pt-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCertificate(item.delivery_id)}
+                    disabled={isLoadingCert === item.delivery_id}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/30 text-cyan-300 text-[10px] font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Award className="w-3 h-3 text-cyan-400" />
+                    <span>{isLoadingCert === item.delivery_id ? "Loading..." : "View Cryptographic IoT Certificate"}</span>
+                  </button>
+                </div>
               </div>
             );
           })
         )}
       </div>
+
+      {/* Cryptographic Cold-Chain Audit Certificate Modal */}
+      <ColdChainCertificateModal
+        certificate={selectedCert}
+        isOpen={isCertModalOpen}
+        onClose={() => setIsCertModalOpen(false)}
+      />
     </div>
   );
 };
+

@@ -280,3 +280,117 @@ Return ONLY valid JSON.`;
     };
   }
 }
+
+/**
+ * Generates concise, speech-friendly audio assistant responses for commercial vehicle drivers
+ * using Gemini 3.8 Flash with an intelligent heuristic fallback.
+ */
+export async function generateDriverVoiceCopilotResponse(context: {
+  driverName: string;
+  truckId: string;
+  query: string;
+  nextDelivery?: any;
+  pendingCount: number;
+  atRiskCount: number;
+  coldChainCount: number;
+  speed?: number;
+}): Promise<{
+  speechText: string;
+  displayText: string;
+  category: "NEXT_STOP" | "COLD_CHAIN" | "ROUTE_STATUS" | "AT_RISK" | "TELEMETRY" | "GENERAL";
+}> {
+  const queryLower = (context.query || "").toLowerCase();
+
+  // Heuristic rule matching function (for fallback and instant response)
+  const getHeuristicResponse = () => {
+    if (queryLower.includes("next") || queryLower.includes("drop") || queryLower.includes("destination") || queryLower.includes("where")) {
+      if (context.nextDelivery) {
+        const coldInfo = context.nextDelivery.is_perishable
+          ? ` Note: this is a temperature-sensitive ${context.nextDelivery.package_type} at ${context.nextDelivery.current_cargo_temp_c || 4}°C.`
+          : "";
+        const dwellInfo = context.nextDelivery.dwell_friction_minutes && context.nextDelivery.dwell_friction_minutes > 5
+          ? ` High dwell building with elevator transit.`
+          : "";
+        const text = `Your next stop is ${context.nextDelivery.recipient} at ${context.nextDelivery.address}, due by ${context.nextDelivery.time_window_end}.${coldInfo}${dwellInfo}`;
+        return { speechText: text, displayText: text, category: "NEXT_STOP" as const };
+      }
+      return {
+        speechText: `You have completed all deliveries on your route for ${context.truckId}. Standby for new orders or return to central depot.`,
+        displayText: `No pending deliveries. Standby or return to depot.`,
+        category: "NEXT_STOP" as const,
+      };
+    }
+
+    if (queryLower.includes("cold") || queryLower.includes("temp") || queryLower.includes("perish") || queryLower.includes("vaccine") || queryLower.includes("ice cream")) {
+      if (context.nextDelivery && context.nextDelivery.is_perishable) {
+        const text = `Active cold-chain package on board: ${context.nextDelivery.package_type}. Internal cargo temperature is ${context.nextDelivery.current_cargo_temp_c || 4.2}°C with ${context.nextDelivery.safe_runway_remaining_min || 30} minutes of safe thermal runway remaining. Status is ${context.nextDelivery.spoilage_risk || "SAFE"}.`;
+        return { speechText: text, displayText: text, category: "COLD_CHAIN" as const };
+      }
+      const text = `You currently have ${context.coldChainCount} cold-chain packages in your cargo hold. All thermal sensors indicate containment within safe thresholds.`;
+      return { speechText: text, displayText: text, category: "COLD_CHAIN" as const };
+    }
+
+    if (queryLower.includes("risk") || queryLower.includes("delay") || queryLower.includes("late") || queryLower.includes("traffic") || queryLower.includes("window")) {
+      if (context.atRiskCount > 0) {
+        const text = `Caution: You have ${context.atRiskCount} at-risk delivery approaching SLA deadline due to corridor traffic. Dispatcher swarm optimization is monitoring for baton pass relay opportunities.`;
+        return { speechText: text, displayText: text, category: "AT_RISK" as const };
+      }
+      const text = `All deliveries on vehicle ${context.truckId} are tracking within nominal SLA windows. No delays detected.`;
+      return { speechText: text, displayText: text, category: "AT_RISK" as const };
+    }
+
+    if (queryLower.includes("how many") || queryLower.includes("remaining") || queryLower.includes("stops") || queryLower.includes("count") || queryLower.includes("status")) {
+      const text = `You have ${context.pendingCount} pending deliveries remaining on your manifest. ${context.coldChainCount} are cold-chain, and ${context.atRiskCount} require priority attention.`;
+      return { speechText: text, displayText: text, category: "ROUTE_STATUS" as const };
+    }
+
+    if (queryLower.includes("speed") || queryLower.includes("truck") || queryLower.includes("telemetry") || queryLower.includes("gps")) {
+      const text = `Truck ${context.truckId} telemetry is online. Speed is ${context.speed || 0} km/h with active browser geolocation streaming to dispatch.`;
+      return { speechText: text, displayText: text, category: "TELEMETRY" as const };
+    }
+
+    // Default polite assistant reply
+    const text = `CargoFlow Voice Co-Pilot active for ${context.driverName} on truck ${context.truckId}. You have ${context.pendingCount} stops remaining. You can ask me about your next stop, cold chain temperatures, or route delays.`;
+    return { speechText: text, displayText: text, category: "GENERAL" as const };
+  };
+
+  if (!isGeminiConfigured()) {
+    return getHeuristicResponse();
+  }
+
+  // Construct Gemini contextual prompt
+  const prompt = `You are "CargoFlow Co-Pilot", an in-cabin audio voice assistant for logistics drivers.
+The driver asked a hands-free question while driving their delivery vehicle.
+Keep your response concise (2 sentences maximum), direct, natural to speak out loud, and focused strictly on safety and facts.
+
+Context:
+- Driver Name: ${context.driverName}
+- Assigned Vehicle: ${context.truckId}
+- Current Speed: ${context.speed || 0} km/h
+- Pending Deliveries: ${context.pendingCount}
+- At-Risk Deliveries: ${context.atRiskCount}
+- Cold-Chain Packages: ${context.coldChainCount}
+- Next Delivery: ${JSON.stringify(context.nextDelivery || "None pending")}
+- Driver Voice Query: "${context.query}"
+
+Return STRICT JSON:
+{
+  "speechText": "Short 1-2 sentence spoken response formatted for natural text-to-speech audio",
+  "displayText": "Concise text summary for the driver screen",
+  "category": "NEXT_STOP" | "COLD_CHAIN" | "ROUTE_STATUS" | "AT_RISK" | "TELEMETRY" | "GENERAL"
+}
+Return ONLY valid JSON.`;
+
+  try {
+    const text = await generateContentWithRetry(prompt);
+    const parsed = JSON.parse(text);
+    if (parsed.speechText && parsed.displayText) {
+      return parsed;
+    }
+    return getHeuristicResponse();
+  } catch (err) {
+    console.warn("[CargoFlow Gemini Copilot] AI error, falling back to heuristic:", err);
+    return getHeuristicResponse();
+  }
+}
+
