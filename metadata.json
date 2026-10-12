@@ -1,0 +1,6 @@
+{
+  "name": "CargoFlow AI - Fleet Routing & Smart Shuffling",
+  "description": "Intelligent logistics decision support system with 'Vertical Last-Mile' Dwell Friction ($D_f$) optimization, 'The Baton Pass' dynamic multi-vehicle relay, LIFO priority routing, and MongoDB building metadata.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
